@@ -38,7 +38,7 @@ class FcmTokenModel extends Model
         $row = [
             'organizacion'        => $data['organizacion'],
             'oficina'             => $data['oficina'],
-            'usuario'             => $data['usuario'],
+            'usuario'             => $data['usuario'] ?? null,
             'nombre_usuario'      => $data['nombre_usuario'],
             'email'               => $data['email'],
             'rol'                 => $data['rol'] ?? null,
@@ -66,7 +66,7 @@ class FcmTokenModel extends Model
             $nuevo = true;
         }
 
-        $this->limitarDispositivos($data['organizacion'], $data['usuario'], $maxPorUsuario);
+        $this->limitarDispositivos($data['organizacion'], $data['email'], $maxPorUsuario);
 
         $this->db->transComplete();
 
@@ -74,44 +74,44 @@ class FcmTokenModel extends Model
     }
 
     /**
-     * Desactiva los tokens más antiguos de un usuario por encima del límite.
+     * Borra los tokens más antiguos de un usuario (email) por encima del límite.
      */
-    private function limitarDispositivos(string $organizacion, string $usuario, int $max): void
+    private function limitarDispositivos(string $organizacion, string $email, int $max): void
     {
         $sobrantes = $this->select('id')
-            ->where(['organizacion' => $organizacion, 'usuario' => $usuario, 'activo' => 1])
+            ->where(['organizacion' => $organizacion, 'email' => $email])
             ->orderBy('fecha_actualizacion', 'DESC')
             ->orderBy('id', 'DESC')
             ->findAll(1000, $max);
 
-        if ($sobrantes !== []) {
-            $this->builder()
-                ->whereIn('id', array_column($sobrantes, 'id'))
-                ->update(['activo' => 0, 'motivo_baja' => 'limite_dispositivos']);
-        }
+        $this->eliminar(array_map('intval', array_column($sobrantes, 'id')));
     }
 
-    public function darDeBaja(string $organizacion, string $token, string $motivo): bool
+    /**
+     * Baja solicitada por el cliente (cierre de sesión): se borra el token.
+     */
+    public function darDeBaja(string $organizacion, string $token): bool
     {
         $this->builder()
             ->where('organizacion', $organizacion)
             ->where('token_hash', self::hashToken($token))
-            ->where('activo', 1)
-            ->update(['activo' => 0, 'motivo_baja' => $motivo, 'fecha_actualizacion' => date('Y-m-d H:i:s')]);
+            ->delete();
 
         return $this->db->affectedRows() > 0;
     }
 
     /**
+     * Borra tokens que ya no sirven (rechazados por FCM, sobrantes o caducados)
+     * para que no se acumulen registros que nunca se van a usar.
+     *
      * @param list<int> $ids
      */
-    public function invalidar(array $ids, string $motivo): void
+    public function eliminar(array $ids): void
     {
         if ($ids === []) {
             return;
         }
-        $this->builder()->whereIn('id', $ids)
-            ->update(['activo' => 0, 'motivo_baja' => $motivo, 'fecha_actualizacion' => date('Y-m-d H:i:s')]);
+        $this->builder()->whereIn('id', $ids)->delete();
     }
 
     /**
@@ -130,12 +130,12 @@ class FcmTokenModel extends Model
      *
      * Semántica:
      *  - "todos": true                  → todos los tokens activos de la organización.
-     *  - "usuarios": [...]              → esos usuarios.
+     *  - "emails": [...] / "usuarios"   → esas personas (todos sus dispositivos).
      *  - "oficinas" y/o "roles"         → segmento; si vienen ambos se combinan con AND
-     *                                     (p. ej. rol SUPERVISOR de la oficina OF01).
-     *  - usuarios + segmento            → unión (OR) de ambos.
+     *                                     (p. ej. rol SUPERVISOR de la oficina 0001).
+     *  - personas + segmento            → unión (OR) de ambos.
      *
-     * @param array{todos?: bool, usuarios?: list<string>, oficinas?: list<string>, roles?: list<string>} $dest
+     * @param array{todos?: bool, emails?: list<string>, usuarios?: list<string>, oficinas?: list<string>, roles?: list<string>} $dest
      */
     public function destinatariosQuery(string $organizacion, array $dest): BaseBuilder
     {
@@ -147,14 +147,18 @@ class FcmTokenModel extends Model
             return $builder;
         }
 
+        $emails   = $dest['emails'] ?? [];
         $usuarios = $dest['usuarios'] ?? [];
         $oficinas = $dest['oficinas'] ?? [];
         $roles    = $dest['roles'] ?? [];
 
         $builder->groupStart();
 
+        if ($emails !== []) {
+            $builder->orWhereIn('email', $emails);
+        }
         if ($usuarios !== []) {
-            $builder->whereIn('usuario', $usuarios);
+            $builder->orWhereIn('usuario', $usuarios);
         }
 
         if ($oficinas !== [] || $roles !== []) {
@@ -194,13 +198,12 @@ class FcmTokenModel extends Model
     }
 
     /**
-     * Desactiva tokens sin actualizar en N días (FCM los considera caducados).
+     * Borra tokens sin actualizar en N días (FCM los considera caducados).
      */
     public function purgarCaducados(int $dias): int
     {
         $limite = date('Y-m-d H:i:s', time() - $dias * 86400);
-        $this->builder()->where('activo', 1)->where('fecha_actualizacion <', $limite)
-            ->update(['activo' => 0, 'motivo_baja' => 'caducado']);
+        $this->builder()->where('fecha_actualizacion <', $limite)->delete();
 
         return $this->db->affectedRows();
     }

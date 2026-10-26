@@ -12,5 +12,6 @@ $routes->group('api/v1', ['namespace' => 'App\Controllers\Api\V1'], static funct
     $routes->delete('tokens', 'TokensController::eliminar', ['filter' => ['jsonbody', 'apiauth:tokens']]);
 
     $routes->post('notificaciones', 'NotificacionesController::enviar', ['filter' => ['jsonbody', 'apiauth:notificaciones']]);
+    $routes->post('notificaciones/lote', 'NotificacionesController::lote', ['filter' => ['jsonbody', 'apiauth:notificaciones']]);
     $routes->get('notificaciones/(:segment)', 'NotificacionesController::estado/$1', ['filter' => 'apiauth:notificaciones']);
 });

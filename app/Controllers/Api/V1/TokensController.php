@@ -33,7 +33,7 @@ class TokensController extends BaseApiController
 
         $rules = [
             'oficina'        => 'required|string|regex_match[/^[A-Z0-9]{4}$/]',
-            'usuario'        => 'required|string|max_length[64]|regex_match[/^[A-Za-z0-9._@\-]+$/]',
+            'usuario'        => 'permit_empty|string|max_length[190]|regex_match[/^[A-Za-z0-9._@\-]+$/]',
             'nombre_usuario' => 'required|string|max_length[150]',
             'email'          => 'required|valid_email|max_length[190]',
             'rol'            => 'permit_empty|string|max_length[30]|regex_match[/^[A-Z0-9_\-]+$/]',
@@ -64,7 +64,7 @@ class TokensController extends BaseApiController
                 'id'           => $res['id'],
                 'organizacion' => $org,
                 'oficina'      => $limpio['oficina'],
-                'usuario'      => $limpio['usuario'],
+                'email'        => $limpio['email'],
                 'registrado'   => $res['nuevo'],
             ],
         ], $res['nuevo'] ? 201 : 200);
@@ -87,7 +87,7 @@ class TokensController extends BaseApiController
             return $this->failValidationErrors($this->validator->getErrors());
         }
 
-        if (! model(FcmTokenModel::class)->darDeBaja($org, $data['token'], 'baja_cliente')) {
+        if (! model(FcmTokenModel::class)->darDeBaja($org, $data['token'])) {
             return $this->failNotFound('Token no encontrado.');
         }
 

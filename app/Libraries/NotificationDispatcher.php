@@ -107,7 +107,7 @@ class NotificationDispatcher
                 $exitosos  += count($ok);
                 $invalidos += count($malos);
                 $this->tokens->marcarEnviados($ok);
-                $this->tokens->invalidar($malos, 'fcm_invalido');
+                $this->tokens->eliminar($malos);
 
                 $cursor = (int) array_key_last($mapa);
                 $this->notificaciones->update($id, [
@@ -175,6 +175,14 @@ class NotificationDispatcher
                 ],
             ],
         ];
+
+        if (! empty($n['imagen'])) {
+            // Web: la imagen grande se indica en webpush.notification.
+            $message['webpush']['notification'] = ['image' => $n['imagen']];
+            // iOS: requiere mutable-content y una Notification Service Extension en la app.
+            $message['apns']['payload']     = ['aps' => ['mutable-content' => 1]];
+            $message['apns']['fcm_options'] = ['image' => $n['imagen']];
+        }
 
         if ($data !== []) {
             $message['data'] = $data;

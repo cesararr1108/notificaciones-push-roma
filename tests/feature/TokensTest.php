@@ -17,6 +17,19 @@ final class TokensTest extends ApiTestCase
         $this->seeInDatabase('fcm_tokens', ['usuario' => 'jperez', 'organizacion' => 'ROMA', 'oficina' => 'OF01', 'activo' => 1]);
     }
 
+    public function testRegistraSoloConEmail(): void
+    {
+        $res = $this->api('POST', 'api/v1/tokens', [
+            'oficina'        => '0001',
+            'nombre_usuario' => 'Ana',
+            'email'          => 'Ana@Empresa.com',
+            'token'          => 'tok_' . str_repeat('e', 40),
+        ], $this->keyRoma);
+
+        $res->assertStatus(201);
+        $this->seeInDatabase('fcm_tokens', ['email' => 'ana@empresa.com', 'oficina' => '0001', 'usuario' => null]);
+    }
+
     public function testReRegistrarMismoTokenActualizaYReasigna(): void
     {
         $token = 'tok_' . str_repeat('x', 40);
@@ -93,10 +106,10 @@ final class TokensTest extends ApiTestCase
     public function testLimiteDeDispositivosPorUsuario(): void
     {
         for ($i = 0; $i < 12; $i++) {
-            $this->registrar(['usuario' => 'multi', 'token' => 'tok_multi_' . str_repeat('m', 20) . $i]);
+            $this->registrar(['usuario' => 'multi', 'email' => 'multi@example.com', 'token' => 'tok_multi_' . str_repeat('m', 20) . $i]);
         }
-        $this->seeNumRecords(10, 'fcm_tokens', ['usuario' => 'multi', 'activo' => 1]);
-        $this->seeNumRecords(2, 'fcm_tokens', ['usuario' => 'multi', 'activo' => 0]);
+        $this->seeNumRecords(10, 'fcm_tokens', ['usuario' => 'multi']);
+        $this->dontSeeInDatabase('fcm_tokens', ['token_hash' => hash('sha256', 'tok_multi_' . str_repeat('m', 20) . '0')]);
     }
 
     public function testEliminarToken(): void
@@ -105,7 +118,7 @@ final class TokensTest extends ApiTestCase
         $this->registrar(['token' => $token]);
 
         $this->api('DELETE', 'api/v1/tokens', ['token' => $token], $this->keyRoma)->assertStatus(200);
-        $this->seeInDatabase('fcm_tokens', ['token_hash' => hash('sha256', $token), 'activo' => 0]);
+        $this->dontSeeInDatabase('fcm_tokens', ['token_hash' => hash('sha256', $token)]);
         $this->api('DELETE', 'api/v1/tokens', ['token' => $token], $this->keyRoma)->assertStatus(404);
     }
 }

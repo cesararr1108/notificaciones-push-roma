@@ -14,11 +14,11 @@ final class NotificacionesTest extends ApiTestCase
     {
         parent::setUp();
 
-        $this->registrar(['usuario' => 'ana', 'oficina' => 'OF01', 'rol' => 'SUPERVISOR', 'token' => 'tok_ana_' . str_repeat('a', 30)]);
-        $this->registrar(['usuario' => 'luis', 'oficina' => 'OF01', 'rol' => 'AGENTE', 'token' => 'tok_luis_' . str_repeat('l', 30)]);
-        $this->registrar(['usuario' => 'eva', 'oficina' => 'OF02', 'rol' => 'SUPERVISOR', 'token' => 'tok_eva_' . str_repeat('e', 30)]);
+        $this->registrar(['usuario' => 'ana', 'email' => 'ana@example.com', 'oficina' => 'OF01', 'rol' => 'SUPERVISOR', 'token' => 'tok_ana_' . str_repeat('a', 30)]);
+        $this->registrar(['usuario' => 'luis', 'email' => 'luis@example.com', 'oficina' => 'OF01', 'rol' => 'AGENTE', 'token' => 'tok_luis_' . str_repeat('l', 30)]);
+        $this->registrar(['usuario' => 'eva', 'email' => 'eva@example.com', 'oficina' => 'OF02', 'rol' => 'SUPERVISOR', 'token' => 'tok_eva_' . str_repeat('e', 30)]);
         // Otra organización: nunca debe recibir mensajes de ROMA.
-        $this->registrar(['organizacion' => 'ACME', 'usuario' => 'ana', 'token' => 'tok_acme_' . str_repeat('z', 30)], $this->keyGlobal);
+        $this->registrar(['organizacion' => 'ACME', 'usuario' => 'ana', 'email' => 'ana@example.com', 'token' => 'tok_acme_' . str_repeat('z', 30)], $this->keyGlobal);
     }
 
     private function enviar(array $destinatarios, array $extra = [], ?string $key = null, array $headers = [])
@@ -74,6 +74,92 @@ final class NotificacionesTest extends ApiTestCase
         $this->assertNotContains('tok_acme_' . str_repeat('z', 30), $this->tokensEnviados());
     }
 
+    public function testEnvioPorEmail(): void
+    {
+        $this->enviar(['emails' => ['ANA@example.com', 'eva@example.com']])->assertStatus(200);
+        $this->assertCount(2, $this->fcm->enviados);
+        $this->assertNotContains('tok_acme_' . str_repeat('z', 30), $this->tokensEnviados());
+    }
+
+    public function testEmailInvalido(): void
+    {
+        $this->enviar(['emails' => ['no-es-correo']])->assertStatus(400);
+    }
+
+    public function testImagenSeEnviaEnTodasLasPlataformas(): void
+    {
+        $this->api('POST', 'api/v1/notificaciones', [
+            'destinatarios' => ['emails' => ['ana@example.com']],
+            'notificacion'  => ['titulo' => 'x', 'cuerpo' => 'y', 'imagen' => 'https://cdn.example.com/a.png'],
+        ], $this->keyRoma)->assertStatus(200);
+
+        $msg = $this->fcm->enviados[0]['message'];
+        $this->assertSame('https://cdn.example.com/a.png', $msg['notification']['image']);
+        $this->assertSame('https://cdn.example.com/a.png', $msg['webpush']['notification']['image']);
+        $this->assertSame('https://cdn.example.com/a.png', $msg['apns']['fcm_options']['image']);
+    }
+
+    public function testLoteMensajesPersonalizados(): void
+    {
+        $res = $this->api('POST', 'api/v1/notificaciones/lote', ['mensajes' => [
+            [
+                'referencia'    => 'msg-ana',
+                'destinatarios' => ['emails' => ['ana@example.com']],
+                'notificacion'  => ['titulo' => 'Hola Ana', 'cuerpo' => 'Tu pedido salió', 'imagen' => 'https://cdn.example.com/ana.png'],
+            ],
+            [
+                'referencia'    => 'msg-of02',
+                'destinatarios' => ['oficinas' => ['OF02']],
+                'notificacion'  => ['titulo' => 'Oficina 2', 'cuerpo' => 'Reunión a las 10'],
+            ],
+            [
+                'destinatarios' => ['todos' => true],
+                'notificacion'  => ['titulo' => 'Todos', 'cuerpo' => 'Aviso general'],
+            ],
+        ]], $this->keyRoma);
+
+        $res->assertStatus(200);
+        $body = $this->json($res);
+        $this->assertSame(3, $body['resumen']['mensajes']);
+        $this->assertSame(5, $body['resumen']['exitosos']);
+        $this->assertSame('msg-ana', $body['data'][0]['referencia']);
+        $this->assertSame(1, $body['data'][1]['exitosos']);
+
+        $porTitulo = [];
+        foreach ($this->fcm->enviados as $e) {
+            $porTitulo[$e['message']['notification']['title']][] = $e['token'];
+        }
+        $this->assertSame(['tok_ana_' . str_repeat('a', 30)], $porTitulo['Hola Ana']);
+        $this->assertSame('https://cdn.example.com/ana.png', $this->fcm->enviados[0]['message']['notification']['image']);
+        $this->assertSame(['tok_eva_' . str_repeat('e', 30)], $porTitulo['Oficina 2']);
+        $this->assertCount(3, $porTitulo['Todos']);
+    }
+
+    public function testLoteConUnMensajeInvalidoNoEnviaNada(): void
+    {
+        $res = $this->api('POST', 'api/v1/notificaciones/lote', ['mensajes' => [
+            ['destinatarios' => ['emails' => ['ana@example.com']], 'notificacion' => ['titulo' => 'ok', 'cuerpo' => 'ok']],
+            ['destinatarios' => ['emails' => ['ana@example.com']], 'notificacion' => ['titulo' => 'sin cuerpo']],
+        ]], $this->keyRoma);
+
+        $res->assertStatus(400);
+        $this->assertArrayHasKey('mensajes.1.notificacion.cuerpo', $this->json($res)['messages']);
+        $this->assertCount(0, $this->fcm->enviados);
+    }
+
+    public function testLoteIdempotente(): void
+    {
+        $body = ['mensajes' => [
+            ['destinatarios' => ['emails' => ['ana@example.com']], 'notificacion' => ['titulo' => 'a', 'cuerpo' => 'a']],
+            ['destinatarios' => ['emails' => ['eva@example.com']], 'notificacion' => ['titulo' => 'b', 'cuerpo' => 'b']],
+        ]];
+        $h = ['Idempotency-Key' => 'lote-000123'];
+        $this->api('POST', 'api/v1/notificaciones/lote', $body, $this->keyRoma, $h)->assertStatus(200);
+        $this->api('POST', 'api/v1/notificaciones/lote', $body, $this->keyRoma, $h)->assertStatus(200);
+
+        $this->assertCount(2, $this->fcm->enviados);
+    }
+
     public function testDestinatariosVaciosEsError(): void
     {
         $this->enviar([])->assertStatus(400);
@@ -103,7 +189,7 @@ final class NotificacionesTest extends ApiTestCase
 
         $this->assertSame(1, $data['exitosos']);
         $this->assertSame(1, $data['invalidos']);
-        $this->seeInDatabase('fcm_tokens', ['usuario' => 'luis', 'activo' => 0, 'motivo_baja' => 'fcm_invalido']);
+        $this->dontSeeInDatabase('fcm_tokens', ['usuario' => 'luis']);
     }
 
     public function testIdempotencia(): void

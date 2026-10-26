@@ -87,7 +87,7 @@ Firestore tiene sentido cuando **la app cliente** lee/escribe directamente con e
 | id | BIGINT PK | |
 | organizacion | CHAR(4) | Siempre la de la API key (no se confía en el cliente) |
 | oficina | CHAR(4) | Mayúsculas, `[A-Z0-9]{4}` |
-| usuario | VARCHAR(64) | Login / código del usuario |
+| usuario | VARCHAR(190) NULL | Login (opcional; el usuario se identifica por email) |
 | nombre_usuario | VARCHAR(150) | |
 | email | VARCHAR(190) | |
 | rol | VARCHAR(30) NULL | Necesario para enviar por rol |
@@ -95,8 +95,8 @@ Firestore tiene sentido cuando **la app cliente** lee/escribe directamente con e
 | token_hash | CHAR(64) UNIQUE | SHA-256 del token (índice único compacto) |
 | navegador | VARCHAR(100) NULL | |
 | dispositivo | VARCHAR(100) NULL | web / android / ios / modelo |
-| activo | TINYINT | Baja lógica |
-| motivo_baja | VARCHAR(50) NULL | `fcm_invalido`, `baja_cliente`, `limite_dispositivos`, `caducado` |
+| activo | TINYINT | Reservado (los tokens inválidos se borran) |
+| motivo_baja | VARCHAR(50) NULL | Reservado |
 | fecha_registro | DATETIME | Primera vez que se registró |
 | fecha_actualizacion | DATETIME | Último re-registro (FCM recomienda refrescar el token periódicamente) |
 | ultimo_envio | DATETIME NULL | Último envío exitoso |
@@ -125,7 +125,7 @@ Firestore tiene sentido cuando **la app cliente** lee/escribe directamente con e
 | Transporte | Forzar HTTPS en producción (`app.forceGlobalSecureRequests`), cabeceras `SecureHeaders`, `Cache-Control: no-store`, `nosniff`. |
 | Credenciales de Firebase | JSON de la cuenta de servicio fuera de `public/`, permisos 0400, ruta por `.env`. Access token OAuth en caché 55 min; nunca se registra en logs. |
 | Filtrado de información | Errores genéricos; en `production` CI4 no muestra trazas. Los logs registran `token_id`, nunca el token. |
-| Tokens viejos | Baja automática cuando FCM responde `UNREGISTERED`; `push:purge` desactiva los no actualizados en 270 días; máximo 10 dispositivos por usuario. |
+| Tokens viejos | Se **borran** cuando FCM responde `UNREGISTERED`, al cerrar sesión (`DELETE /tokens`) y con `push:purge` (sin actualizar en 270 días); máximo 10 dispositivos por email (se borran los más antiguos). |
 
 **Importante:** las API keys son secretos de servidor. El navegador/app del usuario **no** debe llamar a esta API directamente con una llave: el flujo recomendado es
 `app cliente → su backend (ya autenticó al usuario) → esta API`. Si se necesita llamar desde un front, cree una llave solo con scope `tokens`.
@@ -187,7 +187,6 @@ Autenticación en todas (excepto health): `Authorization: Bearer pk_xxxxxxxxxxxx
 ```json
 {
   "oficina": "OF01",
-  "usuario": "jperez",
   "nombre_usuario": "Juan Pérez",
   "email": "jperez@roma.com",
   "rol": "SUPERVISOR",
@@ -201,7 +200,7 @@ Autenticación en todas (excepto health): `Authorization: Bearer pk_xxxxxxxxxxxx
 Respuesta `201` (nuevo) o `200` (actualizado):
 
 ```json
-{ "status": 201, "data": { "id": 15, "organizacion": "ROMA", "oficina": "OF01", "usuario": "jperez", "registrado": true } }
+{ "status": 201, "data": { "id": 15, "organizacion": "ROMA", "oficina": "OF01", "email": "jperez@roma.com", "registrado": true } }
 ```
 
 Llame a este endpoint al iniciar sesión y cada vez que el SDK de Firebase entregue un token nuevo (`onTokenRefresh` / `getToken`).
@@ -219,8 +218,8 @@ Llamar al cerrar sesión. `200` o `404`.
 ```json
 {
   "destinatarios": {
-    "usuarios": ["jperez", "mlopez"],
-    "oficinas": ["OF01"],
+    "emails": ["jperez@roma.com", "mlopez@roma.com"],
+    "oficinas": ["0001"],
     "roles": ["SUPERVISOR"],
     "todos": false
   },
@@ -239,10 +238,12 @@ Llamar al cerrar sesión. `200` o `404`.
 
 Reglas de destinatarios (siempre dentro de la organización de la llave):
 
-- `"todos": true` → todos los usuarios de la organización.
-- `usuarios` → esos usuarios (todos sus dispositivos).
-- `oficinas` y/o `roles` → segmento; si vienen ambos se combinan con **Y** (rol SUPERVISOR **de** OF01).
-- `usuarios` + segmento → **unión** de ambos.
+- `"todos": true` → todos los usuarios de la organización (companies).
+- `emails` → esas personas (todos sus dispositivos). También se acepta `usuarios` (login).
+- `oficinas` (branches) y/o `roles` → segmento; si vienen ambos se combinan con **Y** (rol SUPERVISOR **de** la oficina 0001).
+- `emails` + segmento → **unión** de ambos.
+
+**Imagen:** `notificacion.imagen` es una URL **https** pública (JPG/PNG, idealmente < 1 MB). FCM descarga la imagen; no se adjunta el archivo. Se envía para Android, web e iOS (en iOS la app necesita una *Notification Service Extension* para mostrarla).
 
 Cabecera opcional `Idempotency-Key: <8-100 caracteres>` para reintentar sin duplicar envíos.
 
@@ -262,6 +263,32 @@ Respuesta `200` (enviado ya) o `202` (encolado):
 ```
 
 `invalidos` = tokens que FCM rechazó como caducados (se desactivan automáticamente).
+
+### `POST /api/v1/notificaciones/lote` — varios mensajes personalizados (scope `notificaciones`)
+
+Hasta 100 mensajes por petición; cada uno con sus propios destinatarios, título, cuerpo, imagen y `data`. Se validan todos antes de enviar: si uno tiene errores no se envía ninguno (los errores vienen como `mensajes.N.campo`).
+
+```json
+{
+  "mensajes": [
+    {
+      "referencia": "pedido-981",
+      "destinatarios": { "emails": ["ana@roma.com"] },
+      "notificacion": { "titulo": "Hola Ana", "cuerpo": "Tu pedido 981 salió", "imagen": "https://cdn.roma.com/pedidos/981.jpg" }
+    },
+    {
+      "destinatarios": { "oficinas": ["0002"] },
+      "notificacion": { "titulo": "Oficina 0002", "cuerpo": "Reunión a las 10:00" }
+    },
+    {
+      "destinatarios": { "todos": true },
+      "notificacion": { "titulo": "Aviso general", "cuerpo": "Mañana no hay servicio", "imagen": "https://cdn.roma.com/aviso.png" }
+    }
+  ]
+}
+```
+
+Respuesta: `resumen` con los totales y `data` con el resultado de cada mensaje (`indice`, `referencia`, `id`, `estado`, `exitosos`...). Si el lote completo supera `push.syncLimit` tokens, todo se encola (202) y cada `id` se consulta con el endpoint de estado. `Idempotency-Key` (8-90 caracteres) aplica al lote completo.
 
 ### `GET /api/v1/notificaciones/{id}` — estado (scope `notificaciones`)
 
