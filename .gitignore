@@ -124,3 +124,9 @@ _modules/*
 
 /results/
 /phpunit.xml
+
+#-------------------------
+# Credenciales (nunca subir)
+#-------------------------
+app/Libraries/key/
+*firebase-adminsdk*.json
