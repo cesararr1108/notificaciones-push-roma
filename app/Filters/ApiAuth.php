@@ -42,7 +42,7 @@ class ApiAuth implements FilterInterface
         }
 
         if (! $this->ipPermitida($ip, $client['allowed_ips'] ?? null)) {
-            return $this->error(403, 'IP no autorizada para esta API key.');
+            return $this->error(403, 'IP no autorizada para esta API key: ' . $ip);
         }
 
         service('apiContext')->setClient($client);
