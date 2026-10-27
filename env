@@ -95,3 +95,7 @@
 # push.concurrency = 50
 # push.maxRetries = 3
 # push.maxTokensPerUser = 10
+# Sonido por defecto (ver README, sección Sonido)
+# push.sonidoPorDefecto = notificacion
+# push.sonidoUrlPorDefecto = https://api.pwmultiroma.com/assets/sounds/notificacion.mp3
+# push.canalAndroidPorDefecto = notificaciones

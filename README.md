@@ -264,6 +264,16 @@ Respuesta `200` (enviado ya) o `202` (encolado):
 
 `invalidos` = tokens que FCM rechazó como caducados (se desactivan automáticamente).
 
+**Sonido** (opcional, en `notificacion`):
+
+| Campo | Para qué |
+|---|---|
+| `sonido` | Nombre del archivo de sonido **incluido en la app móvil** (`"notificacion"`), o `"default"` para el sonido del sistema. Android lo busca en `res/raw/notificacion.*`; iOS en el bundle (`notificacion.caf`, `.aiff` o `.wav`, máx. 30 s). |
+| `sonido_url` | URL https del audio (p. ej. un `.mp3`). Viaja en `data.sonido_url` para que la **web/app** lo reproduzca al recibir el mensaje. |
+| `canal_android` | Canal de notificación (Android 8+). En Android 8+ el sonido lo define el canal creado en la app. |
+
+FCM no descarga audios: un sonido personalizado tiene que estar dentro de la app. En navegadores web la notificación del sistema no admite sonido propio; la página puede reproducir `sonido_url` cuando está abierta. Valores por defecto en `.env`: `push.sonidoPorDefecto`, `push.sonidoUrlPorDefecto`, `push.canalAndroidPorDefecto`.
+
 ### `POST /api/v1/notificaciones/lote` — varios mensajes personalizados (scope `notificaciones`)
 
 Hasta 100 mensajes por petición; cada uno con sus propios destinatarios, título, cuerpo, imagen y `data`. Se validan todos antes de enviar: si uno tiene errores no se envía ninguno (los errores vienen como `mensajes.N.campo`).

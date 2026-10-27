@@ -156,13 +156,34 @@ class NotificationDispatcher
             $data['url'] = $n['url'];
         }
 
+        $sonido    = $n['sonido'] ?? ($this->config->sonidoPorDefecto !== '' ? $this->config->sonidoPorDefecto : null);
+        $sonidoUrl = $n['sonido_url'] ?? ($this->config->sonidoUrlPorDefecto !== '' ? $this->config->sonidoUrlPorDefecto : null);
+        $canal     = $n['canal_android'] ?? ($this->config->canalAndroidPorDefecto !== '' ? $this->config->canalAndroidPorDefecto : null);
+
+        if ($sonidoUrl !== null) {
+            // Web: el navegador no permite sonidos personalizados en la notificación del sistema;
+            // la página (onMessage) o la app puede reproducir este archivo al recibir el mensaje.
+            $data['sonido_url'] = $sonidoUrl;
+        }
+
+        $android = ['priority' => $prioridad ? 'HIGH' : 'NORMAL', 'ttl' => $ttl . 's'];
+        $aps     = [];
+
+        if ($sonido !== null) {
+            // Android: nombre del archivo en res/raw SIN extensión. En Android 8+ el sonido lo
+            // define el canal de notificación creado en la app (canal_android).
+            $android['notification']['sound'] = $sonido === 'default' ? 'default' : pathinfo($sonido, PATHINFO_FILENAME);
+            // iOS: archivo incluido en el bundle de la app (.caf/.aiff/.wav, máx. 30 s).
+            $aps['sound'] = ($sonido === 'default' || pathinfo($sonido, PATHINFO_EXTENSION) !== '') ? $sonido : $sonido . '.caf';
+        }
+        if ($canal !== null) {
+            $android['notification']['channel_id'] = $canal;
+        }
+
         $message = [
             'notification' => $notification,
-            'android'      => [
-                'priority' => $prioridad ? 'HIGH' : 'NORMAL',
-                'ttl'      => $ttl . 's',
-            ],
-            'apns' => [
+            'android'      => $android,
+            'apns'         => [
                 'headers' => [
                     'apns-priority'   => $prioridad ? '10' : '5',
                     'apns-expiration' => (string) (time() + $ttl),
@@ -180,8 +201,11 @@ class NotificationDispatcher
             // Web: la imagen grande se indica en webpush.notification.
             $message['webpush']['notification'] = ['image' => $n['imagen']];
             // iOS: requiere mutable-content y una Notification Service Extension en la app.
-            $message['apns']['payload']     = ['aps' => ['mutable-content' => 1]];
+            $aps['mutable-content']         = 1;
             $message['apns']['fcm_options'] = ['image' => $n['imagen']];
+        }
+        if ($aps !== []) {
+            $message['apns']['payload'] = ['aps' => $aps];
         }
 
         if ($data !== []) {

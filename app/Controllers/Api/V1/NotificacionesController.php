@@ -215,6 +215,10 @@ class NotificacionesController extends BaseApiController
             'notificacion.cuerpo' => 'required|string|max_length[1000]',
             'notificacion.imagen' => 'permit_empty|valid_url_strict[https]|max_length[500]',
             'notificacion.url'    => 'permit_empty|valid_url_strict[https]|max_length[500]',
+            // Nombre del archivo de sonido incluido en la app móvil ("default" = sonido del sistema).
+            'notificacion.sonido'        => 'permit_empty|string|max_length[64]|regex_match[/^[A-Za-z0-9_\-]+(\.[A-Za-z0-9]{2,4})?$/]',
+            'notificacion.sonido_url'    => 'permit_empty|valid_url_strict[https]|max_length[500]',
+            'notificacion.canal_android' => 'permit_empty|string|max_length[64]|regex_match[/^[A-Za-z0-9_\-.]+$/]',
             'prioridad'           => 'permit_empty|in_list[high,normal]',
             'ttl'                 => 'permit_empty|is_natural|less_than_equal_to[2419200]',
         ]);
@@ -244,7 +248,7 @@ class NotificacionesController extends BaseApiController
         }
 
         $payload = [
-            'notificacion' => array_intersect_key($data['notificacion'], array_flip(['titulo', 'cuerpo', 'imagen', 'url'])),
+            'notificacion' => array_intersect_key($data['notificacion'], array_flip(['titulo', 'cuerpo', 'imagen', 'url', 'sonido', 'sonido_url', 'canal_android'])),
             'data'         => array_map('strval', $extra),
             'prioridad'    => $data['prioridad'] ?? 'high',
             'ttl'          => isset($data['ttl']) ? (int) $data['ttl'] : 86400,

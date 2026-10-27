@@ -31,6 +31,25 @@ class Push extends BaseConfig
     public string $fcmBaseUrl = 'https://fcm.googleapis.com';
 
     /**
+     * Sonido por defecto de las notificaciones (si el mensaje no trae "sonido").
+     * Nombre del archivo incluido en la app móvil (Android res/raw, iOS bundle);
+     * "default" = sonido del sistema; vacío = no se indica.
+     */
+    public string $sonidoPorDefecto = '';
+
+    /**
+     * URL https del audio que la web/app puede reproducir al recibir el mensaje
+     * (viaja en data.sonido_url). Vacío = no se envía.
+     */
+    public string $sonidoUrlPorDefecto = '';
+
+    /**
+     * Canal de notificación de Android (8+) por defecto. El sonido en Android 8+
+     * lo define el canal creado en la app.
+     */
+    public string $canalAndroidPorDefecto = '';
+
+    /**
      * Si el envío resuelve a <= N tokens se envía en la misma petición
      * (respuesta 200 con el resultado). Por encima se encola y se
      * responde 202; el worker (php spark push:worker) lo procesa.

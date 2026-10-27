@@ -99,6 +99,51 @@ final class NotificacionesTest extends ApiTestCase
         $this->assertSame('https://cdn.example.com/a.png', $msg['apns']['fcm_options']['image']);
     }
 
+    public function testSonidoPersonalizado(): void
+    {
+        $this->api('POST', 'api/v1/notificaciones', [
+            'destinatarios' => ['emails' => ['ana@example.com']],
+            'notificacion'  => [
+                'titulo'        => 'x',
+                'cuerpo'        => 'y',
+                'imagen'        => 'https://cdn.example.com/a.png',
+                'sonido'        => 'notificacion',
+                'sonido_url'    => 'https://cdn.example.com/notificacion.mp3',
+                'canal_android' => 'notificaciones',
+            ],
+        ], $this->keyRoma)->assertStatus(200);
+
+        $msg = $this->fcm->enviados[0]['message'];
+        $this->assertSame('notificacion', $msg['android']['notification']['sound']);
+        $this->assertSame('notificaciones', $msg['android']['notification']['channel_id']);
+        $this->assertSame('notificacion.caf', $msg['apns']['payload']['aps']['sound']);
+        $this->assertSame(1, $msg['apns']['payload']['aps']['mutable-content']);
+        $this->assertSame('https://cdn.example.com/notificacion.mp3', $msg['data']['sonido_url']);
+    }
+
+    public function testSonidoPorDefectoDesdeConfig(): void
+    {
+        $config                         = config(\Config\Push::class);
+        $config->sonidoPorDefecto       = 'notificacion';
+        $config->sonidoUrlPorDefecto    = 'https://cdn.example.com/n.mp3';
+        $config->canalAndroidPorDefecto = 'general';
+
+        $this->enviar(['emails' => ['ana@example.com']])->assertStatus(200);
+
+        $msg = $this->fcm->enviados[0]['message'];
+        $this->assertSame('notificacion', $msg['android']['notification']['sound']);
+        $this->assertSame('general', $msg['android']['notification']['channel_id']);
+        $this->assertSame('https://cdn.example.com/n.mp3', $msg['data']['sonido_url']);
+    }
+
+    public function testSonidoInvalido(): void
+    {
+        $this->api('POST', 'api/v1/notificaciones', [
+            'destinatarios' => ['emails' => ['ana@example.com']],
+            'notificacion'  => ['titulo' => 'x', 'cuerpo' => 'y', 'sonido' => '../../etc/passwd', 'sonido_url' => 'http://inseguro.com/a.mp3'],
+        ], $this->keyRoma)->assertStatus(400);
+    }
+
     public function testLoteMensajesPersonalizados(): void
     {
         $res = $this->api('POST', 'api/v1/notificaciones/lote', ['mensajes' => [
